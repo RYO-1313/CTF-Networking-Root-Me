@@ -1,36 +1,216 @@
-# CTF-Networking --- Root-Me
-# 🛡️ CTF Networking Journey — Root-Me Writeups
+# 🛡️ My CTF Networking Journey — Root-Me Writeups
 
-Hi! I'm a self-taught cybersecurity student working my way into the field.  
-This repo documents my solutions and notes from networking challenges on [Root-Me](https://www.root-me.org) — one of the best free platforms for practicing real cybersecurity skills.
-
-Every writeup includes what the challenge was, how I approached it, and what I learned from it.  
-I update this repo every time I complete a new challenge.
+*A structured, hands-on approach to building network security fundamentals through protocol analysis, packet inspection, and threat-relevant tooling.*
 
 ---
 
-## 📁 Challenges
+## 👤 About Me
 
-| # | Challenge | Platform | Category | Difficulty |
-|---|-----------|----------|----------|------------|
-| 01 | [FTP Authentication](./01-FTP-Authentication.md) | Root-Me | Network | ⭐ Very Easy |
-| 02 | [TELNET Authentication](./02-TELNET-Authentication.md) | Root-Me | Network | ⭐ Very Easy |
-| 03 | [Twitter Authentication](./03-Twitter-Authentication.md) | Root-Me | Network | ⭐ Very Easy |
+I am a self-taught cybersecurity student focused on building a strong foundation in network security with the goal of working as a **SOC Analyst**. This repository documents my progress through networking challenges on [Root-Me](https://www.root-me.org/), one of the leading platforms for practical cybersecurity training.
+
+Every writeup reflects not just the solution, but the **methodology, concepts learned, and analytical process** — the same structured thinking expected in a SOC environment.
 
 ---
 
-## 🧰 Tools I Use
+## 🧰 Tools Used
 
-- **Wireshark** — packet capture analysis
-- **Nmap** — network scanning
-- **Linux terminal** — everything else
-
----
-
-## 🎯 My Goal
-
-To build a strong foundation in network security through hands-on practice — and eventually move into penetration testing and ethical hacking.
+| Tool | Purpose |
+|------|---------|
+| Wireshark | Packet capture analysis, Follow TCP Stream, protocol filtering, layer inspection |
+| Nmap | Host and service enumeration (`nmap -sC -sV -Pn <target>`) |
+| Linux Terminal | Command execution, file management, tool usage (daily CachyOS user) |
+| snmpv3brute | SNMPv3 authentication hash brute-forcing against pcap files |
 
 ---
 
-*This repo is a work in progress and grows with every challenge I complete.*
+## 📚 Challenges Completed
+
+---
+
+### ✅ Challenge 01 — FTP Authentication
+
+**What the challenge was:**
+A pcap file containing FTP traffic. The goal was to identify login credentials transmitted over the network.
+
+**What I learned:**
+- FTP transmits credentials in **plaintext** — no encryption at all
+- The `USER` and `PASS` commands are fully readable in the TCP stream
+- Wireshark's Follow TCP Stream reassembles the full session conversation
+
+**My Approach:**
+1. Opened the pcap in Wireshark
+2. Right-clicked a packet → Follow TCP Stream
+3. Read the plaintext credentials directly from the stream
+
+```
+USER <username>
+PASS <password>
+```
+
+**Key Skill Learned/Reinforced:**
+Wireshark's **Follow TCP Stream** — reassembles fragmented TCP packets into a readable, human-friendly conversation.
+
+**Core Takeaway:**
+> FTP was designed without security in mind. Credentials are fully visible to any observer on the network — this is why SFTP and FTPS exist as secure alternatives.
+
+---
+
+### ✅ Challenge 02 — TELNET Authentication
+
+**What the challenge was:**
+A pcap file containing Telnet traffic. The goal was to extract login credentials from the captured session.
+
+**What I learned:**
+- Telnet sends **every keystroke** as a separate packet, including login input
+- There is a **Telnet negotiation phase** at session start where client and server agree on terminal options
+- Despite the negotiation noise, credentials still appear in plaintext in the stream
+
+**My Approach:**
+1. Opened the pcap in Wireshark
+2. Applied Wireshark filter:
+```
+telnet
+```
+3. Followed TCP Stream to reassemble the full session
+4. Read past the negotiation phase to locate the login prompt and credentials
+
+**Key Skill Learned/Reinforced:**
+Identifying and reading through **protocol negotiation phases** — understanding that not all traffic at session start is credentials.
+
+**Core Takeaway:**
+> Telnet is as insecure as FTP — all data including passwords travels in cleartext. SSH replaced Telnet precisely because of this vulnerability.
+
+---
+
+### ✅ Challenge 03 — Twitter Authentication
+
+**What the challenge was:**
+A pcap file containing HTTP traffic with a Twitter login. The goal was to extract credentials from an HTTP Basic Authentication header.
+
+**What I learned:**
+- **HTTP Basic Authentication** encodes credentials as `username:password` in Base64 and sends them in the request header
+- Base64 is **encoding, not encryption** — it can be decoded by anyone instantly
+- Wireshark automatically decodes Base64 in HTTP Basic Auth headers
+- The credentials were visible in a **single packet** — no stream reassembly needed
+
+**My Approach:**
+1. Opened the pcap in Wireshark
+2. Applied filter:
+```
+http
+```
+3. Located the HTTP request containing the `Authorization: Basic` header
+4. Wireshark decoded the Base64 automatically — credentials immediately visible
+
+```
+Authorization: Basic <base64string>
+Decoded: username:password
+```
+
+**Key Skill Learned/Reinforced:**
+**HTTP Basic Auth and Base64 decoding** — understanding that encoding is not encryption, and that Wireshark surfaces decoded values automatically.
+
+**Core Takeaway:**
+> Base64 is not a security mechanism — it is a transport encoding. HTTP Basic Auth over plain HTTP exposes credentials to any network observer.
+
+---
+
+### ❌ Challenge 04 — SNMP Authentification *(Not Validated)*
+
+**What the challenge was:**
+A pcap file containing SNMPv3 traffic. Unlike previous challenges, Follow TCP Stream alone reveals nothing useful — SNMPv3 uses hash-based authentication that requires a different toolchain entirely.
+
+**What I learned:**
+- **SNMP** is used to monitor and manage network devices such as routers, switches, and servers
+- Three SNMP versions exist with increasing security:
+
+```
+SNMPv1  →  Community string only, plaintext, no authentication
+SNMPv2c →  Improved performance, still cleartext
+SNMPv3  →  Hash-based authentication + optional encryption
+```
+
+- SNMPv3 operates under three security levels:
+
+| Level | Authentication | Encryption | Meaning |
+|-------|---------------|------------|---------|
+| noAuthNoPriv | ❌ | ❌ | No security |
+| authNoPriv | ✅ | ❌ | Authenticated, data visible |
+| authPriv | ✅ | ✅ | Fully secured |
+
+- The challenge used **SNMPv3 with authNoPriv** — authenticated but not encrypted
+- SNMPv3 never transmits the password directly — only a derived **HMAC hash** stored in `msgAuthenticationParameters`
+- The `msgUserName` field travels in plaintext — revealed username: `user`
+- Tools like `snmpv3brute` are required to brute-force the hash directly from the pcap
+
+**My Approach:**
+1. Opened pcap in Wireshark — Follow TCP Stream showed unreadable data
+2. Inspected individual SNMP packets → identified SNMPv3 and USM security model
+3. Read `msgFlags`: auth SET, encrypted NOT SET → confirmed **authNoPriv**
+4. Located `msgUserName: user` in the USM section
+5. Identified `msgAuthenticationParameters` as a hash, not a plaintext password
+6. Attempted cracking with `snmpv3brute` and rockyou wordlist:
+
+```bash
+python3 snmpv3brute.py -w /usr/share/wordlists/rockyou.txt -p ch16.pcap
+```
+
+**Key Skill Learned/Reinforced:**
+Reading **SNMPv3 packet structure in Wireshark** — identifying security level from `msgFlags`, navigating the USM layer, and recognizing that hash-based authentication requires a cracking tool rather than simple stream reading.
+
+**Core Takeaway:**
+> SNMPv3 never sends your password over the wire — only a hash. This challenge introduced a fundamentally different analytical approach: extract and crack, not just read.
+
+---
+
+## 🗺️ Pattern Recognized
+
+| Challenge | Protocol | Encryption | Credentials Visible? |
+|-----------|----------|------------|----------------------|
+| FTP Authentication | FTP | ❌ None | ✅ Plaintext in TCP stream |
+| TELNET Authentication | Telnet | ❌ None | ✅ Plaintext in TCP stream |
+| Twitter Authentication | HTTP | ❌ None (Base64 encoding only) | ✅ Decoded automatically by Wireshark |
+| SNMP Authentification | SNMPv3 | ❌ authNoPriv | ⚠️ Hash only — requires cracking tool |
+
+---
+
+## 📈 Skills Gained So Far
+
+- [x] Wireshark — Follow TCP Stream
+- [x] Wireshark — Packet layer inspection
+- [x] Wireshark — Protocol filtering (`ftp`, `telnet`, `http`, `snmp`)
+- [x] FTP, Telnet, and HTTP Basic Auth flows
+- [x] Base64 is encoding, not encryption
+- [x] SNMPv3 security levels (noAuthNoPriv / authNoPriv / authPriv)
+- [x] USM (User-based Security Model) in SNMPv3
+- [x] Hash vs plaintext — recognizing the difference in packet captures
+- [x] Offline hash cracking methodology with wordlists
+- [x] Nmap `-Pn` flag (bypass ping for unresponsive hosts)
+- [x] CTF methodology — enumerate, analyze, extract
+
+---
+
+## 🔭 What's Next
+
+- [ ] Revisit SNMP Authentification with a targeted wordlist
+- [ ] RIPv1 - No Authentication
+- [ ] SIP - Authentication
+- [ ] XMPP - Authentication
+- [ ] OSPF - Authentication
+- [ ] NTLM - Authentication
+- [ ] Kerberos - Authentication
+
+---
+
+## 📖 Resources That Helped Me
+
+| Resource | Purpose |
+|----------|---------|
+| [Root-Me](https://www.root-me.org/) | CTF networking challenges platform |
+| [TryHackMe — Blue Team Path](https://tryhackme.com/) | Structured SOC analyst learning pathway |
+| [Wireshark Documentation](https://www.wireshark.org/docs/) | Protocol dissection reference and filter syntax |
+| [snmpv3brute](https://github.com/shellster/snmpv3brute) | SNMPv3 pcap brute-force tool |
+
+---
+
+*Last updated: March 2026 — 3 challenges validated | 1 attempted (SNMP)*
