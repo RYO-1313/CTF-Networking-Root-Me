@@ -16,12 +16,14 @@ Every writeup reflects not just the solution, but the methodology, concepts lear
 | Tool | Purpose |
 |------|---------|
 | Wireshark | Packet capture analysis, Follow TCP Stream, protocol filtering, layer inspection |
-| Nmap | Host and service enumeration (`nmap -sC -sV -Pn <target>`) |
+| Nmap | Host and service enumeration |
 | Linux Terminal | Command execution, file management, tool usage (daily CachyOS user) |
+| dig | DNS query utility — zone transfer enumeration, record-type querying |
 | snmpv3brute | SNMPv3 authentication hash brute-forcing against pcap files |
 | hashcat | Offline hash cracking with wordlists and mask attacks |
 | John the Ripper | Offline hash cracking, mask-based brute force |
 | hashes.com | Online rainbow table lookup for pre-cracked hashes |
+| Packet6 Type 7 Decryptor | Cisco Type 7 password reversal tool |
 
 ---
 
@@ -144,7 +146,6 @@ Every writeup reflects not just the solution, but the methodology, concepts lear
   - **Encryption** — requires a secret key to reverse
   - **Hashing** — one-way transformation; cannot be reversed, only cracked or looked up
 - `service password-encryption` enables Type 7 obfuscation on plaintext passwords — it does not provide real security
-- `security passwords min-length 8` applies to the plaintext password at the time it is set, not to the stored hash
 - `enable secret` (Type 5 MD5) is stronger than `enable password` (Type 7 or plaintext)
 - **privilege 15** on a Cisco device means highest access level — equivalent to root/enable access
 - Online hash lookup databases (e.g., hashes.com) store previously cracked hashes — useful when wordlist cracking fails
@@ -173,6 +174,32 @@ Type 9  — Scrypt (strongest)
 
 ---
 
+### ✅ Challenge 06 — DNS — Zone Transfert
+
+**What the challenge was:** A DNS service was intentionally misconfigured for a target domain hosted on a non-standard port. The objective was to exploit an unrestricted DNS Zone Transfer (AXFR) to enumerate all DNS records within the zone and retrieve the flag embedded in the zone data.
+
+**What I learned:**
+- A DNS **server** is the machine responding to requests; a **domain** (zone) is the subject being queried; a **query type** defines what kind of information is requested — these are three distinct concepts that must not be conflated
+- DNS zone transfers are a legitimate administrative mechanism allowing secondary DNS servers to synchronize records from a primary server
+- When left unrestricted, any external party can request the entire zone — exposing every subdomain, internal hostname, and service record the organization has configured
+- This is a reconnaissance-enabling misconfiguration: it does not grant access to any system, but it eliminates the reconnaissance phase of an attack entirely
+- AXFR zone transfers require TCP, not UDP — standard DNS queries use UDP, but a full zone dump exceeds what a single UDP datagram can carry
+- Reading tool documentation directly (`man dig`) is an effective way to understand each component of a query rather than relying on pre-built commands
+
+**My Approach:**
+1. Analyzed the challenge information to identify the target domain, DNS server, and non-standard port
+2. Researched the concept of DNS zone transfers to understand the vulnerability before touching any tool
+3. Consulted the `dig` manual to identify flags for server targeting, port specification, query name, query type, and TCP transport
+4. Iterated through connection issues — correcting the server vs. domain argument order and explicitly forcing TCP transport
+5. Successfully executed the AXFR request, which returned the full zone record set containing the flag
+
+**Key Skill Learned/Reinforced:** DNS enumeration via zone transfer abuse — understanding that misconfigured DNS infrastructure can expose an organization's entire internal naming structure in a single query, and identifying this using native Linux tooling.
+
+**Core Takeaway:**
+> A DNS zone transfer misconfiguration is a reconnaissance gift to an attacker. From a SOC perspective, anomalous AXFR requests in DNS logs are a meaningful early-warning signal. The fix is straightforward: restrict zone transfer responses to authorized secondary DNS server IP addresses only.
+
+---
+
 ## 🗺️ Pattern Recognized
 
 | Challenge | Protocol | Encryption | Credentials Visible? |
@@ -182,6 +209,7 @@ Type 9  — Scrypt (strongest)
 | Twitter Authentication | HTTP | ❌ None (Base64 encoding only) | ✅ Decoded automatically by Wireshark |
 | SNMP Authentification | SNMPv3 | ❌ authNoPriv | ⚠️ Hash only — requires cracking tool |
 | CISCO Password | Cisco IOS Config | ⚠️ Type 7 obfuscation / Type 5 MD5 | ⚠️ Type 7 reversible instantly / Type 5 via rainbow table |
+| DNS — Zone Transfert | DNS / AXFR | ❌ None | ✅ Full zone dump — all records exposed |
 
 ---
 
@@ -204,9 +232,12 @@ Type 9  — Scrypt (strongest)
 - [x] Hashcat and John the Ripper — wordlist and mask attacks
 - [x] Rainbow table / online hash lookup (hashes.com)
 - [x] Reading and analyzing Cisco IOS configuration files
+- [x] DNS zone transfer abuse (AXFR) — enumeration via misconfigured DNS
+- [x] dig — DNS query utility, server/domain/query-type distinction, TCP forcing
+- [x] DNS infrastructure concepts — server vs. zone vs. query type
+- [x] Reconnaissance impact of DNS misconfiguration — attack surface mapping
 
 ---
-
 
 ## 📖 Resources That Helped Me
 
@@ -215,10 +246,11 @@ Type 9  — Scrypt (strongest)
 | Root-Me | CTF networking challenges platform |
 | TryHackMe — Blue Team Path | Structured SOC analyst learning pathway |
 | Wireshark Documentation | Protocol dissection reference and filter syntax |
+| dig (man page) | DNS query utility — zone transfer and record-type reference |
 | snmpv3brute | SNMPv3 pcap brute-force tool |
 | hashes.com | Online rainbow table lookup for MD5 and other hash types |
 | Packet6 Type 7 Decryptor | Cisco Type 7 password reversal tool |
 
 ---
 
-*Last updated: March 2026 — 4 challenges validated | 1 attempted (SNMP)*
+*Last updated: March 2026 — 5 challenges validated | 1 attempted (SNMP)*
