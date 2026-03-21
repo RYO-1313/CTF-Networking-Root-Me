@@ -19,9 +19,11 @@ Every writeup reflects not just the solution, but the methodology, concepts lear
 | Nmap | Host and service enumeration |
 | Linux Terminal | Command execution, file management, tool usage (daily CachyOS user) |
 | dig | DNS query utility — zone transfer enumeration, record-type querying |
+| ldapsearch | LDAP directory enumeration and null bind testing |
 | snmpv3brute | SNMPv3 authentication hash brute-forcing against pcap files |
+| apop2john | APOP challenge-response hash extraction for John the Ripper |
 | hashcat | Offline hash cracking with wordlists and mask attacks |
-| John the Ripper | Offline hash cracking, mask-based brute force |
+| John the Ripper | Offline hash cracking, mask-based brute force, format-aware cracking |
 | hashes.com | Online rainbow table lookup for pre-cracked hashes |
 | Packet6 Type 7 Decryptor | Cisco Type 7 password reversal tool |
 
@@ -200,6 +202,79 @@ Type 9  — Scrypt (strongest)
 
 ---
 
+### ✅ Challenge 07 — LDAP — Null Bind
+
+**What the challenge was:** A misconfigured LDAP server exposed to anonymous access. The objective was to enumerate the directory tree using a null bind and retrieve a user's email address.
+
+**What I learned:**
+- LDAP (Lightweight Directory Access Protocol) is a protocol used to access and maintain distributed directory services — commonly used in Active Directory environments
+- A **null bind** is an anonymous authentication attempt with no username or password — when a server accepts it, the directory becomes publicly readable
+- Distinguished Names (DNs) in LDAP follow a specific-to-general ordering — the most specific component (cn, uid) comes first, the broadest (dc) comes last
+- Organizational units (ou) divide the directory tree into branches — navigating to the correct branch is required to find specific records
+- Anonymous LDAP enumeration is a significant reconnaissance technique in Active Directory environments — it can expose usernames, email addresses, group memberships, and organizational structure without any credentials
+
+**My Approach:**
+1. Connected to the LDAP server using ldapsearch with a null bind
+2. Enumerated the base directory structure to identify organizational units
+3. Targeted the relevant ou branch containing user records
+4. Retrieved the user object and extracted the email address
+
+**Key Skill Learned/Reinforced:** LDAP URI format and Distinguished Name component ordering — understanding how to navigate a directory tree programmatically and why null bind misconfiguration is a critical finding in any security assessment.
+
+**Core Takeaway:**
+> Anonymous LDAP access is a misconfiguration with real impact. In Active Directory environments, a null bind can expose the entire user and group structure of an organization. From a SOC perspective, unauthenticated LDAP bind attempts in logs warrant immediate investigation.
+
+---
+
+### ✅ Challenge 08 — IP — Time To Live
+
+**What the challenge was:** A packet capture containing an ICMP exchange between a source and a target host. The objective was to identify the TTL value used by the source to successfully reach the targeted host.
+
+**What I learned:**
+- TTL (Time To Live) is a packet lifespan mechanism — a counter that decrements at each router hop, and when it reaches zero, the router discards the packet and sends back an ICMP "Time Exceeded" error
+- ICMP (Internet Control Message Protocol) is a network-layer protocol used not for data transfer, but for diagnostic and error communication between devices — the protocol behind ping and traceroute
+- The critical distinction between **request TTL** and **reply TTL**: the reply carries the target's own TTL — a separate value set by the responding machine — which is not the same as the TTL the source used to reach it
+- Traceroute deliberately exploits TTL behavior by sending packets with incrementing TTL values to map every router hop between source and destination
+
+**My Approach:**
+1. Opened the capture in Wireshark and observed all packets were ICMP, with approximately 70 "Time-to-live exceeded" error messages present
+2. Identified TTL=51 as an initial candidate — then recognized this was the **reply** TTL from the target, not the outgoing request
+3. Re-read the challenge statement carefully and located the successful outgoing request
+4. Identified the correct TTL value on the source packet that reached the target without expiring
+
+**Key Skill Learned/Reinforced:** Distinguishing between request TTL and reply TTL in a packet exchange — and reading challenge statements precisely before drawing conclusions from packet data.
+
+**Core Takeaway:**
+> A high volume of ICMP "Time Exceeded" messages in a packet capture is a recognizable fingerprint of traceroute-based reconnaissance — an attacker systematically mapping network hops to a target. From a SOC detection perspective, this pattern warrants investigation as active network path discovery.
+
+---
+
+### ✅ Challenge 09 — POP-APOP
+
+**What the challenge was:** A packet capture containing a POP3 session using APOP authentication. The objective was to recover the user's plaintext password from the network frame.
+
+**What I learned:**
+- POP3 (Post Office Protocol v3) is an email retrieval protocol — clients connect to a mail server to authenticate and download messages
+- APOP is a challenge-response authentication extension to POP3 — the server sends a unique timestamp at session start, the client combines it with the password and sends back an MD5 hash, never transmitting the password in cleartext
+- Despite being more secure than plain POP3 at the time of its design, APOP relies on MD5 which is now considered cryptographically weak and vulnerable to wordlist attacks
+- apop2john extracts the APOP challenge and hash from a pcap into a format John the Ripper understands — the same workflow as snmp2john
+- Terminal output must be treated as data — visual assumptions about formatting can be incorrect. A wordlist entry beginning with `100%` is indistinguishable from a progress indicator unless independently verified
+- Independent verification of tool output is essential: cross-validating with a manual Python MD5 calculation exposed a misreading that would otherwise have remained unresolved
+
+**My Approach:**
+1. Filtered the capture for POP traffic and followed the TCP stream — identified an APOP exchange with a server challenge string and MD5 digest
+2. Extracted the hash using apop2john and ran John the Ripper with the rockyou wordlist
+3. John returned a result that visually appeared to be a progress indicator followed by a password — submitted the wrong value repeatedly
+4. Independently verified the hash using a Python script, which confirmed the full string including `100%` was the complete password entry in the wordlist
+5. Submitted the correct value and validated the challenge
+
+**Key Skill Learned/Reinforced:** Independent verification of cracking tool output — when results are ambiguous or submissions fail, cross-validating with a direct hash calculation catches misreadings that tool output alone cannot surface.
+
+**Core Takeaway:**
+> APOP was a meaningful security improvement over plaintext POP3 in 1996, but its reliance on MD5 makes it vulnerable to offline wordlist attacks when traffic is captured. From a SOC perspective, APOP traffic in a modern environment signals legacy infrastructure — a potential attack surface. Protocols designed decades ago may have been reasonable at the time but no longer meet current security standards.
+
+---
+
 ## 🗺️ Pattern Recognized
 
 | Challenge | Protocol | Encryption | Credentials Visible? |
@@ -210,6 +285,9 @@ Type 9  — Scrypt (strongest)
 | SNMP Authentification | SNMPv3 | ❌ authNoPriv | ⚠️ Hash only — requires cracking tool |
 | CISCO Password | Cisco IOS Config | ⚠️ Type 7 obfuscation / Type 5 MD5 | ⚠️ Type 7 reversible instantly / Type 5 via rainbow table |
 | DNS — Zone Transfert | DNS / AXFR | ❌ None | ✅ Full zone dump — all records exposed |
+| LDAP — Null Bind | LDAP | ❌ None | ✅ Directory enumerated anonymously |
+| IP — Time To Live | ICMP | ❌ None | ✅ TTL values visible in packet headers |
+| POP-APOP | POP3 / APOP | ⚠️ MD5 challenge-response | ⚠️ Hash only — cracked via wordlist attack |
 
 ---
 
@@ -217,8 +295,8 @@ Type 9  — Scrypt (strongest)
 
 - [x] Wireshark — Follow TCP Stream
 - [x] Wireshark — Packet layer inspection
-- [x] Wireshark — Protocol filtering (ftp, telnet, http, snmp)
-- [x] FTP, Telnet, and HTTP Basic Auth flows
+- [x] Wireshark — Protocol filtering (ftp, telnet, http, snmp, pop, icmp)
+- [x] FTP, Telnet, HTTP Basic Auth, POP3/APOP flows
 - [x] Base64 is encoding, not encryption
 - [x] SNMPv3 security levels (noAuthNoPriv / authNoPriv / authPriv)
 - [x] USM (User-based Security Model) in SNMPv3
@@ -236,6 +314,19 @@ Type 9  — Scrypt (strongest)
 - [x] dig — DNS query utility, server/domain/query-type distinction, TCP forcing
 - [x] DNS infrastructure concepts — server vs. zone vs. query type
 - [x] Reconnaissance impact of DNS misconfiguration — attack surface mapping
+- [x] LDAP protocol and directory services — null bind, DN structure, ou navigation
+- [x] Anonymous LDAP enumeration as a reconnaissance technique
+- [x] SOC detection relevance of null bind attempts in Active Directory environments
+- [x] TTL (Time To Live) — hop-based packet lifespan mechanism
+- [x] ICMP — network diagnostic and error communication protocol
+- [x] Request TTL vs reply TTL distinction in packet captures
+- [x] Traceroute behavior — TTL manipulation for network path mapping
+- [x] ICMP "Time Exceeded" as a SOC-detectable reconnaissance fingerprint
+- [x] APOP challenge-response authentication mechanism
+- [x] apop2john — hash extraction from pcap for format-aware cracking
+- [x] Independent verification of tool output via manual hash calculation
+- [x] Protocol age and cryptographic weakness — MD5 in legacy authentication
+- [x] Terminal output ambiguity — data vs. visual formatting assumptions
 
 ---
 
@@ -247,10 +338,12 @@ Type 9  — Scrypt (strongest)
 | TryHackMe — Blue Team Path | Structured SOC analyst learning pathway |
 | Wireshark Documentation | Protocol dissection reference and filter syntax |
 | dig (man page) | DNS query utility — zone transfer and record-type reference |
+| RFC 1939 | POP3 and APOP protocol specification |
 | snmpv3brute | SNMPv3 pcap brute-force tool |
+| apop2john | APOP hash extraction tool for John the Ripper |
 | hashes.com | Online rainbow table lookup for MD5 and other hash types |
 | Packet6 Type 7 Decryptor | Cisco Type 7 password reversal tool |
 
 ---
 
-*Last updated: March 2026 — 5 challenges validated | 1 attempted (SNMP)*
+*Last updated: March 2026 — 8 challenges validated | 1 attempted (SNMP)*
