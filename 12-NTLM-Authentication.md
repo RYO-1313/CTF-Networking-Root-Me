@@ -25,4 +25,4 @@ Self-doubt as a debugging strategy. When cracking attempts failed across multipl
 NTLM authentication over SMB is a high-value target in Active Directory environments. Captured NTLMv2 hashes are crackable offline with no interaction required from the target. From a SOC perspective, unexpected SMB connections, NTLM authentication attempts from unusual hosts, or lateral movement patterns involving NTLM are detectable indicators of credential harvesting or pass-the-hash activity.
 
 ## 🤖 Claude's Role
-Guided understanding of the NTLM handshake structure, NTLMv2 hash format, and userPrincipalName concept. Prompted critical evaluation of failed cracking attempts and supported the decision to doubt the manual hash construction. Tool discovery, hash extraction, cracking, and flag recovery were performed independently.
+Guided understanding of the NTLM handshake structure, NTLMv2 hash format, and userPrincipalName concept. Prompted critical evaluation of failed cracking attempts . Tool discovery, hash extraction, cracking, and flag recovery were performed independently.
